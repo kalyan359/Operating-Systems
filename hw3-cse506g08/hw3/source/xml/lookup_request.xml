@@ -1,0 +1,7 @@
+<ExtentType name="IOTTAFSL:Trace:Syscall:lookup_request" namespace="iotta.snia.org.fsl.cs.sunysb.edu" version="1.00">
+  <field name="time_called" type="int64" opt_nullable="no"/>
+  <field name="xid" type="int32" opt_nullable="no"/>
+  <field name="dir_handle" type="variable32" opt_nullable="no"/>
+  <field name="file_name" type="variable32" opt_nullable="no"/>
+  <field name="full_pathname" type="variable32" opt_nullable="yes"/>
+</ExtentType>

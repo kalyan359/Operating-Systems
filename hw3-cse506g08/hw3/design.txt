@@ -1,0 +1,226 @@
+File System level trace analysis - Design Document
+
+Submitted by:
+Sudhir Kasanavesi (SBU ID: 108492541)
+Nihar Konireddy (SBU ID: 108395318)
+Kalyan Chandra Chintalapati (SBU ID: 108080090)
+April 10, 2012
+
+Contents
+1 Introduction....................................................... 2
+2 File System Traces................................................. 2
+2.1 Analysis of NFS Trace............................................ 3
+2.2 Capturing NFS Trace.............................................. 3
+3 Design of the System............................................... 4
+3.1 Data series format conversion.................................... 4
+3.2 Extending the analyzer functionality............................. 5
+3.3 Feature Function Selection....................................... 6
+4 Testing and Demo Plan.............................................. 6
+5 Conclusion......................................................... 7
+6 References......................................................... 7
+
+Abstract
+Optimization of resource usage is an important aspect of construct-
+ing huge energy efficient systems. This would have a very high impact
+on the performance and economics of the system. Trace analysis is an
+important and reliable methodology in the understanding the behav-
+ior of the system under a workload. This project focuses on analyzing
+file-system traces. We would be working on Network File System
+trace. We are planning to enhance and reuse the components built for
+analyzing block I/O traces.
+
+1 Introduction
+Traces are the most important resources which could help researchers in un-
+derstanding the workload characteristics of a system. A good trace analysis
+would help in understanding the behavior of the system under a real time
+load and these results would help in optimization of the system resources.
+Optimization of System Resources is the need of the hour in the present era
+of building huge energy efficient systems and data centers. Current research
+in the trace analysis pertains to I/O block trace study and pertains to lower
+level trace analysis. The trace analysis at higher levels of the system could
+give richer information when compared to the lower level traces and these
+statistics could help in better understanding of workload characteristics of the
+system. For this reason, the problem statement of the project is to analyze
+the traces at file system level. Performing trace analysis at higher level like
+file system level is chosen because of the availability of rich APIs and also
+by considering the impact of any optimizations at file systems level would be
+significant.
+
+2 File System Traces
+There are about 30 widely used file systems. Few prominent ones being ext2,
+ext3 and Network File System(NFS) file systems. The process of obtaining
+the trace information at file systems like ext2 or ext3 is relatively cumbersome
+task. Researchers have proposed that there are two different approaches in
+which a file-system (typically ext2 or ext3) trace could be captured.
+(1) By using system call trace such as strace, but this would be an overkill
+because there would be lot of other system calls which might not be due
+to the I/O operations performed on the file system. One of the heuristic
+approach is to trace only I/O related systems, but we might miss out on
+tracing system calls like fork(). Such system calls would be important in
+
+trace analysis because we would be interested to see which file descriptors a
+particular process is inheriting from its parent when it is forked. This ap-
+proach is complicated to filter out irrelavant system calls from the strace but
+it is possible.
+(2) By intercepting system calls at VFS level. In this approach we can snoop
+the system calls related to file-system by modifying the kernel code at the
+level of file operations, inode operations or address-space operations. VFS
+Interceptor [5] is developed using this approach by modifying the VFS kernel
+code with a little overhead. Not many tools have been developed to extend
+this approach because it is not easy to modify the kernel code without much
+overhead.
+NFS is by far the most widely used network file-system today. NFS client
+sends requests using RPC to the server. NFS Server translates these RPC
+requests and accesses the local physical file system.
+
+2.1 Analysis of NFS Trace
+NFS trace can provide lot of information about the NFS workload. The
+system performance could be studied if the traces can be analyzed. Some
+of the basic interesting analysis that could be done using the traces are
+finding out the busiest server/client, finding out the hottest files (or types
+of files), find the most frequently used procedures. Doing such an analysis
+helps us to understand the behaviour of the system under workload and gives
+us the pointers to optimize the system specific to the particular workload.
+Capturing traces also can yield in aiding for doing an advanced analysis such
+as finding the read/write ratio, getattr/read ratio, getattr/write ratio. For
+example, we can analyze the trace to find out how many getattr procedures
+are followed by read/write procedure. Depending on the ratio of getattr/read
+and getattr/write ratio, we can predict and prefetch the attributes to increase
+the system performance.
+
+2.2 Capturing NFS Trace
+NFS file-system traces can be captured by sniffing the ethernet packets since
+the request-reply between client and server is achieved using RPC. The pack-
+ets which are captured consists of NFS calls and reponses, they have to be
+
+decoded and then recorded in the trace. Some of the tools which capture the
+network traffic are tcpdump, snoop, tethereal and wireshark etc.
+nfsdump[6] is built to gather and analyze NFS traces. It sniffs packets, de-
+codes NFS calls and responses, and records them in a text format. This tool
+was considered to capture the NFS trace, but since it has not been updated
+for over 5 years; we are investigating on other tools such as tcpdump and
+tethereal to capture the traces.
+tcpdump is one among the oldest command line tools available for this pur-
+pose. But doesn’t have a lot of NFS smarts, however, so generally this is
+a tool that is used to capture network traffic to a file for later analysis by
+a tool like Wire Shark that can dissect RPC and NFS traffic more completely.
+Alternatively, SNIA IOTTA Repository provides a repository of traces which
+were captured on some workloads. These traces could be used directly to
+analyze, but they do not provide information about the environment and
+workload under which the trace is captured. This would make it hard to
+speculate while analyzing the traces. So we are planning to capture the
+traces under a known enviroment, by introducing workloads which are read-
+heavy or write-heavy (or both) and then analyze those traces. NFS client
+and NFS server would be setup in two different virtual machines and work-
+load will be generated. The traces will be captured using above mentioned
+tools.
+
+3 Design of the System
+This project aims to design a system which (1) converts the captured packets
+to DataSeries[3] format. (2) extend the analyzer functionality to support file-
+system traces by implementing new feature functions. (3) Selecting feature
+functions.
+
+3.1 Data series format conversion
+Trace information is often huge, not flexible, not portable to work on. The
+output of tcpdump would be in the pcap format, but the trace analyzer
+expects the input format to be in the data series format. So it is a very
+important aspect of the project to convert the trace into the data series for-
+mat. Data series file is an ordered sequence of records where each record is
+composed of a set of fields. Each field has a field-type (e.g., integer, string,
+double, boolean) and a name. The data series format can store records of
+multiple extent types(where extent type contains a collection of rows with
+same fields and field types.) Typically these extent types are defined in XML
+format. Here is a simple example of XML description of extent type for our
+purpose.
+
+<ExtentType namespace="http://www.fsl.cs.sunysb.edu" name="Trace::FS::NFShost"
+version="0.1">
+<field type="byte" name="opcode"/>
+<field type="variable32" name="getattr"/>
+<field type="variable32" name="filename"/>
+<field type="int64" name="size"/>
+</ExtentType>
+
+The above is an example of XML description which collects the informa-
+tion of records with getattr operation and also gives the size of the file and
+filename. There is a tool called nettrace2ds which converts files in PCAP
+format to the DataSeries files. We are currently investigating the possibility
+of using this tool for our purpose and if the results are not promosing we
+would consider writing our own tool which converts any trace file into data
+series format
+
+3.2 Extending the analyzer functionality
+
+The analyzer accepts the trace information in DataSeries[3] format and iter-
+ates through all the records by applying different feature functions for each
+record. It then gives the workload statistics from the trace data. The an-
+alyzer currently supports feature functions for the properties in block I/O
+trace. But file-system traces will have some more additional properties such
+as lookup etc. Our system wouldd extend the functionality of this analyzer
+by implementing new feature functions.
+
+3.3 Feature Function Selection
+The selection and instrumentation of feature functions for trace analysis is the
+important part of the project. Version 3 of the NFS protocol has 22 different
+procedures such as NULL, GETATTR, FSSTAT, READ, WRITE, ACCESS
+etc. We have observed that GETATTR, READ, WRITE and LOOKUP
+procedures as most frequently used on NFS file-systems. The scope of this
+project is confined to implementing feature functions for few of these proce-
+dures. This could be extended in future to analyze other interesting proce-
+dures.
+
+In this project we are interested to observe GETATTR/READ ratio, this
+analysis would drive us in analyzing whether the client caches are effective
+or not. Similarly GETATTR/WRITE ratio can also be analyzed. The fea-
+ture functions required for performing this analysis would be f1: getattr()
+operation, f2: file-system read() operation, f3: file-system write() operation.
+The analyzer would iterate through every record in the DataSeries[3] file and
+invoke the feature functions for appopriate operations and build a multidi-
+mensional matrix - feature matrix. Once the feature matrix is created several
+operations will be performed by the analyzer to normalize the parameters and
+feed it into the benchmark plugins.
+
+4 Testing and Demo Plan
+As mentioned earlier, we would be working on the read-heavy and write-
+heavy workloads to generate the traces. These collected traces would be
+converted into the custom defined data series format and the output of the
+converter is given to the modified analyzer. The analyzer would be modified
+for extending the functionality of newly added feature functions. The output
+from the analyzer which is a multidimensional matrix is collected and the
+graphs for these feature functions along with the results in multidimensional
+matrix could be plotted. The graphs for nearly same traces could be com-
+pared to check for the accuracy of the analysis. This is the testing and demo
+plan.
+
+5 Conclusion
+We will demonstrate that the system will be able to analyzes few properties of
+the file-system traces. This could be further extend to make the user specify
+the properties which they intend to analyze thus giving more flexibility to
+analyze the file-system traces. There are many possible ends of this project
+which could be further explored like fixing the chunk size, building Markov
+models to analyze workload characteristics etc.
+
+6 References
+[1] Extracting Flexible, Replayable Models from Large Block Traces - V.
+Tarasov, S. Kumar, J. Ma, D. Hildebrand, A. Povzner, G. Kuenning, and
+E. Zadok Stony Brook University, Harvey Mudd College, and IBM Almaden
+Research
+http://www.fsl.cs.sunysb.edu/docs/fast-t2m/t2m.pdf
+[2] https://www.usenix.org/conference/fast12/extracting-flexible-replayable-
+models-large-block-traces-0
+[3] DataSeries: An efficient, flexible data format for structured serial data
+- DataSeries Technical Documentation
+http://tesla.hpl.hp.com/opensource/DataSeries-tr-snapshot.pdf
+[4] http://wiki.linux-nfs.org/wiki/index.php/NetworkTracing
+[5] VFS Interceptor: Dynamically Tracing File System Operations in real
+environments - Yang Wang, Jiwu Shu, Wei Xue , Mao Xue
+http://www.cs.utexas.edu/yangwang/VFSInterceptor.pdf
+[6] New NFS Tracing Tools and Techniques for System Analysis - Daniel
+Ellard and Margo Seltzer
+http://www.eecs.harvard.edu/sos/talks/ellardlisa03pres.pdf
+[7] Capture, conversion, and analysis of an intense NFS workload - Eric
+Anderson, HP Labs <eric.anderson4@hp.com>
+[8] RFC 1813 - NFS Version 3 Protocol Specification
+http://www.faqs.org/rfcs/rfc1813.html
+

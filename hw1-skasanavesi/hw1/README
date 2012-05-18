@@ -1,0 +1,180 @@
+CSE 506 - HW1
+Sudhir Kasanavesi (skasanavesi@cs.stonybrook.edu)
+SOLAR # 108492541
+
+This source files present in this directory consists of source-code to add a new system call xcrypt() to the linux kernel. This system call is used for encrypting and decrypting files.
+
+ --------------
+| Source files |
+ -------------- 
+As specified all the source files are present in hw1-skasanavesi/hw1 directory. Please see below for details file descriptions
+1) xcipher.c - This is a user-application which invokes the xcrypt() system call.
+2) xcrypt.c - This file consists of static kernel code i.e function pointer and actual xcrypt() system call and is burned into the kernel. The function pointer is exposed out, so that the loadable module can change the address to make it point to the implementation in loadable module. The actual xcrypt() system call just invokes the function pointed by the function pointer.
+3) sys_xcrypt.h - This file consists of the declarations which are needed for using the system call. The user-application must include this header in order to invoke the system call.
+4) sys_xcrypt.c - This is the loadable kernel module which consists of the system call implementation. The function pointer which is burned to the kernel code is made to point to another function in this module which does encrypt/decrypt. In this way we are hooking the system call to the loadable kernel module.
+NOTE: This file consists of source code copied CEPH File system source code present in linux/net/ceph/crypto.c I have copied the functions ceph_aes_encrypt() and ceph_aes_decrypt() functions and renamed them to aes_encrypt() and aes_decrypt(). I have modified little code in those functions.
+5) Makefile - This file has commands to compile the static kernel code as well as the loadable kernel module. The entry of "hw1" folder is made in /hw1-skasanavesi/Makefile. This is done because once "make" command is issued on the kernel(/hw1-skasanavesi), it automatically compiles both static kernel code, loadable kernel module and also the user-level program.
+6) kernel.config - As specified, I have tried to build kernel with minimum configuration. I have used www.kernel-seeds.org to find out the exact hardware devices that are present in the virtual machine. Using that information, I have included only drivers relating to the hardware configuration. The resulting minimal kernel image obtained is 3.6MB and can be found in /hw1-skasanavesi/arch/x86/boot/bzImage.
+
+ -------------
+| Executables |
+ -------------
+Executing "make" on hw1-skasanavesi produces xcrypt.o, sys_xcrypt.ko, xcipher and some intermediate files.
+1) xcrypt.o is burned into the kernel because it is bound with obj-y in hw1/Makefile
+2) sys_xcrypt.ko - this has to be inserted/removed manually using below commands from the folder /hw1-skasanavesi/hw1/
+   insmod sys_xcrypt.ko - for inserting the module
+   rmmod sys_xrcrypt.ko - for removing the module
+3) xcipher is the user program which invokes the system call. Instructions for executing this program are explained below.
+NOTE: Occasionally upon executing "insmod sys_xcrypt.ko", it says "Disabling lock debugging due to kernel taint". I have included module license as GPL and also tried several things such as replacing KERN_INFO with KERN_ALERT in printk but this is still not resolved. However, the module is inserted and works properly.
+
+Executing "make clean" in this directory will remove all the intermediate files and output files.
+
+  -------------------------------------------------------------
+| Steps to be followed for compiling and executing this project |
+  -------------------------------------------------------------
+1) Check-out the hw1/skasanavesi repository from GIT. Navigate to the checked-out path.
+2) Either copy kernel.config present in hw1-skasanavesi/hw1 to .config in hw1-skasanavesi (or) use "make" by specifying config file.
+3) Run "make modules_install".
+4) Run "make install".
+5) Reboot the kernel and login to the new kernel.
+7) Navigate to the checked-out path i.e. /hw1-skasanavesi
+8) Run "make headers_check".
+9) Run "make INSTALL_HDR_PATH=../linux-headers headers_install".
+The above steps are to be done only one-time. This will result in burning the static kernel code, compiling the loadable kernel module.
+
+NOTE: I have followed the above steps by reading through http://www.csee.umbc.edu/~chettri/421/projects/hello_syscall.html
+
+ ------------------------------------------------
+| Compiling the user-application (i.e xcipher.c) |
+ ------------------------------------------------
+I have used openssl libraries in the user-application to send the pass-phrase to the kernel. So for compiling this user-application, we need to make sure that openssl and openssl-devel are installed. They can be installed using "yum install openssl" and "yum install openssl-devel". 
+
+Executing "make" in hw1-skasanavesi/hw1 will compile user-application. But alternatively, if we want to compile then 
+Execute the below command from /hw1-skasanavesi/hw1/ directory to compile the user-application:
+gcc -Wall -Werror xcipher.c -o xcipher -lssl -Iusr/src/linux-headers/include
+
+ -------------------------------------------------
+| Executing the user-application (i.e. xcipher.o) |
+ -------------------------------------------------
+./xcipher {-e|-d} [-c ARG] {-p PASSWORD} [-h] infile outfile
+{-e|-d} : Mandatory option. Use either -e to encrypt OR -d to decrypt. Do not use both.
+[-c ARG] : Optional. I did not implement this for multiple encryption algorithms, but added minimal code to provide interface. Default is 128 bit AES using CBC.
+{-p PASSWORD} : Mandatory option. Provide the pass-phrase using this option.
+[-h] : Optional. Displays help message.
+infile : Input file name (or path) to be encrypted/decrypted depending on {-e|-d} option.
+outfile : Output file (or path) where the encrypted/decrypted file will be produced depending on {-e|-d} option.
+ 
+ ----------------------
+| Design Considerations |
+ ----------------------
+The system call is added by hooking a function pointer, exporting the symbol of it to access it outside the kernel. Thus we can modify the address to which the function pointer to make it point to the function in loadable kernel module.
+
+	     -----------------------------------
+	    |    User-level Program (xcipher.c) |
+	    |    syscall(__NR_xcrypt, args)     |
+	     -----------------------------------
+				|
+				|
+		  ----------------------------------
+		|   Static kernel code (xcrypt.c)   |                                                 sys_xcrypt(args)
+                 __________________________________
+                                | Pointer to the function present in loadable
+                                | kernel module
+		 ---------------------------------------------
+		|	Loadable Kernel Module (sys_xcrypt.c) |  
+		|	my_sys_xcrypt()
+		 ---------------------------------------------
+		 
+   Architecture of implementing system call using loadable kernel module.
+		
+The user-program which needs to invoke the system call must include "sys_xcrypt.h". This file contains the definition of the structure to be filled in and passed as argument to the system call. The arguments to be passed to the system call are not hard-coded for portability. In future if the system call must be changed to perform encryption using other algorithms, then the modifications can be done easily by adding additional required parameters to the structure and not in the system call prototypes. This ensures the system call will be backward compatible.
+
+Parameters:
+The system call accepts arguments as a pointer to the structure defined in sys_xcrypt.h. Please see below for several fields present in the structure.
+typedef struct mysyscallargs {
+	char *in_file;		/* input file name */
+	char *out_file;		/* output file name */
+	char *keybuf;		/* buffer to hold the key */
+	char *cipherMethod;	/* cipher method */
+	int flags;		/* Flag indicating encrypt/decrypt */
+				/* if LSB is 0 - encrypt, else decrypt */
+	int keylen; 		/* indicates length of the key buffer */
+} myhw1args;
+
+Return value:
+On success, it returns 0. The system call also imposes several error-checking mechanisms and sets nearly closest error number to "errno" which could be extracted using perror(). I tried porting the the nearest possible error codes. Below error codes slightly deviate from the meaning. The user program has to interpret the following error codes as specified below
+
+EPERM (ERRNO 1): Input file and Output file are same (or) wrong key specified
+ENOENT (ERRNO 2): Input file doesnot exist or not accessible
+EFAULT (ERRNO 14): Parameters are not accesible or NULL (or) Encrypt/Decrypt failed
+EINVAL (ERRNO 22): Unable to store key while encrypting
+ENAMETOOLONG (ERRNO 36): Input file name (path) or Output file name (path) too long
+EMSGSIZE (ERRNO 90): Pass-phrase should be within 6-4096 characters
+
+File names (path):
+I have added checks where limitations are placed on input and output file names or paths. The maximum allowable file name or path is 254.
+
+Key (pass-phrase):
+User-application has to pass a pass-phase to either encrypt or decrypt the input file. But sending this pass-phrase directly to the kernel is not safe. So I have used MD5 in my user-application which is a one-way hash. But storing this hash along with the cipher text is also not safe, because it can be decrypted easily. So, in the kernel, the key (hashed pass-phrase) is again hashed using MD5 and then stored along with the cipher text.
+Now, when the user wants to decrypt the file, the user application hashes the pass-phrase and sends it to the kernel. The kernel hashes it again and compares the result with first 16 bytes of data. If they are same, then it decrypts. Otherwise returns back an error by setting -EINVAL error code.
+As specified in the HW1, the limitations on this key that is passed to the kernel is 6 - 4096
+
+Padding: 
+AES algorithm accepts data blocks in chunks of 16 bytes. But if the input file is not in multiples of 16 bytes, then it has to be padded appropriately. I have used a padding scheme recommended by PKCS5, PKCS7 and CMS (http://www.di-mgt.com.au/cryptopad.html). Padding the input with a padding string of number of pad bytes needed. 
+INPUT BLOCK  = f  o  r  _  _  _  _  _
+(IN HEX)       66 6F 72 05 05 05 05 05
+
+Format of the encrypted file:
+0                16                     48
+----------------------------------------------------------------
+| KEY(MD5 hashed) |      PAD STRING     | CIPHER TEXT | PADDING |
+----------------------------------------------------------------
+Padding bits are added to the nearest multiple of 16. Thus, the padding value will change for different input files depending on the file sizes. PAD STRING is a 32 byte long string which has number of pad bytes in first two bytes and remaining 30 bytes as zeroes. 
+Ex: PAD STRING for file which need 12 pad bits is 01 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+The above mentioned string is encrypted and stored in along with the cipher text.
+
+Input and Output files:
+The system call performs several checks before actually encrypting or decrypting. It checks the following
+1) Input file exists and is accessible to read.
+2) Input file and output file are not same. I am checking the inode numbers of both the files.
+3) Output file if exists will be over-written. So the user application must be very careful. If the output file doesnot exists, it will be created.
+4) The system call supports encryption and decryption of 0 byte files. But the only disadvantage is the encrypted file is 48 bytes due to the preamble (key and Padstring).
+5) Output file will be created with the permissions same as input file. I have used the "i_mode" field present in the input file inode for creating the output file. 
+
+Encryption and Decryption:
+I have copied the source code for encryption and decryption algorithms from CEPH File system code. I have modified the function names and modified little code in them. These functions are implemented using an Initialization vector of 16 bytes. It is a constant string is defined in sys_xcrypt.c
+I have implemented encryption/decryption in the chunks of PAGE_SIZE (i.e. 4096 bytes).  The encryption/decryption pseudo code is given below.
+
+	read_buffer = kmalloc(PAGE_SIZE);
+	...
+	...
+	openInputFile(infile....);	// open input file (check for error conditions specified above) 
+	openOutputFile(outfile...); // open output file (check for error conditions specified above
+	
+	// Determine encryption/decryption to be performed.
+	...
+		// In case of encryption, hash the recieved key using MD5 and write it to the output file.
+		// Calculate the padding needed depending on the input file size, build the PAD STRING and PADDING as specified above
+		
+		// In case of decryption, hash the received key using MD5.
+		// Read the first 16 bytes of input file and compare the contents (using memcmp() and not strcmp()) 
+		// If both are same then the given key is correct, else reject the input file returning error code.
+	while (bytes_read < 0) 
+	{
+		// Read input file in chunks of PAGE_SIZE, encrypt/decrypt it and write it to the output file
+	}
+	......
+	// Handle the partial written file and delete it, if error occured in any of the above steps.
+	......
+	filp_close(outfile); // close output file handle
+	filp_close(infile);  // close input file handle
+
+	kfree(read_buffer); // deallocate buffers.
+	
+NOTE: I have allocated PAGE_SIZE + 16 bytes of memory for the buffers which are needed to hold the encrypted data. The reason being, the encrypt algorithm is implemented to add a cryptographic nonce of 16 bytes in the end of the buffer being passed. If I allocated this buffer as the same size of the input data then it was creating buffer overflows when it tried to add additional 16 bytes of nonce.
+
+Testing:
+I have included a test folder inside hw1-skasanavesi/hw1. This folder consists of the input files which I have used for testing my system call. It consists of files with sizes 0 bytes, < 4096 bytes, = 4096 bytes, > 4096 bytes and another file which spans more than 2 * PAGE_SIZE.
+The file names are t<num>.txt
+The encrypted file names are t<num>_enc.txt
+The decrypted file names are t<num>_dec.txt
